@@ -20,17 +20,15 @@ class GCodeParser {
         const type = this.classifyLine(line);
         const newPosition = { ...this.currentPosition };
 
-        if (type === 'movement' || type === 'arc') {
-            if (type === 'arc') {
-                this.processArcMovement(line, newPosition);
-            } else {
-                this.processMovement(line, newPosition);
-            }
+        if (type === 'movement') {
+            this.processMovement(line, newPosition);
+        } else if (type === 'arc') {
+            this.processArcMovement(line, newPosition);
         } else {
-            this.handleNonMovement(type, newPosition);
+            this.handleNonMovement(line, type);
         }
 
-        this.currentPosition = newPosition;
+        this.currentPosition = { ...newPosition };
     }
 
     classifyLine(line) {
@@ -44,15 +42,11 @@ class GCodeParser {
             'G1 Z': 'wipe', 'G1 X': 'outerwall', 'G1 Y': 'outerwall',
         };
 
-        // Extract the command code (e.g., G0, G1, G92) from the line
         const commandCode = line.split(' ')[0];
-
-        // Use the command code to find the corresponding type
         return commandMap[commandCode] || 'unknown';
     }
 
-    processMovement(line, type) {
-        const newPosition = { ...this.currentPosition };
+    processMovement(line, newPosition) {
         let parts = line.split(' ');
 
         parts.forEach(part => {
@@ -63,14 +57,7 @@ class GCodeParser {
             }
         });
 
-        if (type === 'arc') {
-            this.processArcMovement(newPosition, parts, line);
-        } else {
-            this.updateLayer(newPosition);
-        }
-
-        // Update currentPosition to the end of the movement
-        this.currentPosition = { ...newPosition };
+        this.updateLayer(newPosition);
     }
 
     processArcMovement(line, newPosition) {
@@ -90,15 +77,12 @@ class GCodeParser {
             }
         }
 
-        // Check for valid center coordinates
         if (isNaN(centerX) || isNaN(centerY)) {
             console.error('Invalid center for arc movement:', line);
             return;
         }
 
         const radius = Math.sqrt(Math.pow(centerX - this.currentPosition.x, 2) + Math.pow(centerY - this.currentPosition.y, 2));
-
-        // Check for valid radius
         if (isNaN(radius) || radius <= 0) {
             console.error('Invalid radius for arc movement:', line);
             return;
@@ -108,7 +92,6 @@ class GCodeParser {
         const endAngle = Math.atan2(newPosition.y - centerY, newPosition.x - centerX);
         let angleDiff = isClockwise ? startAngle - endAngle : endAngle - startAngle;
 
-        // Normalize the angle difference
         if (angleDiff < 0) {
             angleDiff += 2 * Math.PI;
         }
@@ -116,41 +99,33 @@ class GCodeParser {
             angleDiff -= 2 * Math.PI;
         }
 
-        const segmentLength = 1; // mm, adjust as needed
+        const segmentLength = 1;
         const circumference = Math.abs(angleDiff) * radius;
         const numSegments = Math.max(Math.ceil(circumference / segmentLength), 1);
 
-        // Generate the points along the arc
         for (let i = 1; i <= numSegments; i++) {
             let fraction = i / numSegments;
             let angle = startAngle + angleDiff * fraction;
             let x = centerX + radius * Math.cos(angle);
             let y = centerY + radius * Math.sin(angle);
 
-            // Validate each point before adding
             if (!isNaN(x) && !isNaN(y)) {
                 if (this.currentLayer) {
                     this.currentLayer.movements.push({
                         from: { ...this.currentPosition },
-                        to: { x: x, y: y, z: this.currentPosition.z },
+                        to: { x, y, z: this.currentPosition.z },
                         center: { x: centerX, y: centerY },
                         radius: radius,
                         isClockwise: isClockwise
                     });
                 }
 
-                this.currentPosition.x = x;
-                this.currentPosition.y = y;
+                this.currentPosition = { x, y, z: this.currentPosition.z };
             } else {
                 console.error('Invalid arc segment position:', x, y);
             }
         }
-
-        // After the loop, ensure currentPosition is set to the end of the arc
-        this.currentPosition = { ...newPosition };
     }
-
-
 
     updateLayer(newPosition) {
         if (!this.currentLayer || newPosition.z !== this.currentLayer.z) {
@@ -163,8 +138,6 @@ class GCodeParser {
                 to: { ...newPosition }
             });
         }
-
-        this.currentPosition = newPosition;
     }
 
     handleNonMovement(line, type) {
