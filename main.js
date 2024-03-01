@@ -15,33 +15,51 @@ document.getElementById('canvasContainer').appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 
 // Function to visualize layers using Three.js
+// After parsing the G-code and visualizing the initial layer
 function visualizeLayers(layers) {
-    // Clear existing scene
-    while (scene.children.length > 0) {
-        scene.remove(scene.children[0]);
+    // Set the slider's maximum to the number of layers
+    const layerSlider = document.getElementById('layerSlider');
+    layerSlider.max = layers.length - 1;
+
+    // Initial layer visualization
+    updateLayerVisualization(0);
+
+    // Slider event listener
+    layerSlider.oninput = function () {
+        updateLayerVisualization(this.value);
+    };
+
+    function updateLayerVisualization(selectedLayerIndex) {
+        // Clear existing scene
+        while (scene.children.length > 0) {
+            scene.remove(scene.children[0]);
+        }
+
+        // Create a material for the lines
+        const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+
+        // Visualize all layers up to the selected index
+        for (let i = 0; i <= selectedLayerIndex; i++) {
+            const layer = layers[i];
+            layer.movements.forEach(movement => {
+                const geometry = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(movement.from.x, movement.from.y, movement.from.z),
+                    new THREE.Vector3(movement.to.x, movement.to.y, movement.to.z)
+                ]);
+                const line = new THREE.Line(geometry, material);
+                scene.add(line);
+            });
+        }
+
+        // Update the camera position and render the scene
+        controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, Math.max(500, 2 * layers.length));
+        camera.lookAt(controls.target);
+        controls.update();
+        renderer.render(scene, camera);
     }
-
-    // Create a material for the lines
-    const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-
-    // Iterate over layers and movements to create lines
-    layers.forEach(layer => {
-        layer.movements.forEach(movement => {
-            const geometry = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(movement.from.x, movement.from.y, movement.from.z),
-                new THREE.Vector3(movement.to.x, movement.to.y, movement.to.z)
-            ]);
-            const line = new THREE.Line(geometry, material);
-            scene.add(line);
-        });
-    });
-
-    // Update camera position to fit the scene
-    controls.target.set(0, 0, 0);
-    camera.position.set(0, 0, Math.max(500, 2 * layers.length));
-    camera.lookAt(controls.target);
-    controls.update();
 }
+
 
 // Function to handle G-code file upload
 function handleFileUpload(event) {
