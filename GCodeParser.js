@@ -41,25 +41,19 @@ class GCodeParser {
         const parts = line.split(' ');
 
         let isExtruding = false;
-        let isPurge = true;
+        let hasMovement = false;
         parts.forEach(part => {
             const code = part.charAt(0);
             const value = parseFloat(part.substring(1));
             if (['X', 'Y', 'Z'].includes(code)) {
-                if (newPosition[code.toLowerCase()] !== this.currentPosition[code.toLowerCase()]) {
-                    isPurge = false;
-                }
+                hasMovement = true;
                 newPosition[code.toLowerCase()] = value;
             }
-            if (code === 'E' && value > 0) {
+            if (code === 'E' && value > 0 && hasMovement) {
                 isExtruding = true;
                 this.firstExtrusionOccurred = true;
             }
         });
-
-        if (isExtruding && isPurge) {
-            this.currentLayer.purges.push({ position: this.currentPosition });
-        }
 
         this.updateLayer(newPosition, isExtruding);
     }
@@ -134,7 +128,7 @@ class GCodeParser {
         }
     }
 
-    updateLayer(newPosition, isExtruding, isPurge = false) {
+    updateLayer(newPosition, isExtruding) {
         if (!this.currentLayer) {
             this.currentLayer = this.createNewLayer();
         }
@@ -148,7 +142,6 @@ class GCodeParser {
                 from: { ...this.currentPosition },
                 to: { ...newPosition },
                 isExtruding: isExtruding,
-                isPurge: isPurge
             });
         }
     }
@@ -157,7 +150,6 @@ class GCodeParser {
         const layer = {
             z: z,
             movements: [],
-            purges: []
         };
         this.layers.push(layer);
         return layer;

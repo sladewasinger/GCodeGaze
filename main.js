@@ -59,9 +59,10 @@ function visualizeLayers(layers) {
     // Set the slider's maximum to the number of layers
     const layerSlider = document.getElementById('layerSlider');
     layerSlider.max = layers.length - 1;
+    layerSlider.value = layerSlider.max;
 
     // Initial layer visualization
-    updateLayerVisualization(0);
+    updateLayerVisualization(layerSlider.max);
 
     // Slider event listener
     layerSlider.oninput = function () {
@@ -93,22 +94,6 @@ function visualizeLayers(layers) {
                 const positionsArray = movement.isExtruding ? extrusionPositions : travelPositions;
                 positionsArray.push(movement.from.x, movement.from.y, movement.from.z);
                 positionsArray.push(movement.to.x, movement.to.y, movement.to.z);
-            });
-        }
-
-        // Create geometry and material for purge spheres
-        const sphereGeometry = new THREE.SphereGeometry(2, 16, 16);
-        const purgeMaterial = new THREE.MeshBasicMaterial({ color: 0xff8000 });
-
-        // Render purge spheres for each layer up to the selected index
-        for (let i = 0; i <= selectedLayerIndex; i++) {
-            const layer = layers[i];
-            layer.purges.forEach(purge => {
-                const purgePosition = purge.position;
-                const purgeSphere = new THREE.Mesh(sphereGeometry, purgeMaterial);
-                purgeSphere.position.set(purgePosition.x, purgePosition.y, purgePosition.z);
-                scene.add(purgeSphere);
-                purgeSphereMeshes.push(purgeSphere);
             });
         }
 
@@ -163,3 +148,12 @@ function onWindowResize() {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
+
+fetch('media/TEST.gcode')
+    .then(response => response.text())
+    .then(gcode => {
+        const parser = new GCodeParser();
+        const layers = parser.parse(gcode);
+        visualizeLayers(layers);
+    })
+    .catch(error => console.error('Error loading the G-code file:', error));
