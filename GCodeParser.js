@@ -95,18 +95,24 @@ class GCodeParser {
 
         const startAngle = Math.atan2(this.currentPosition.y - centerY, this.currentPosition.x - centerX);
         const endAngle = Math.atan2(newPosition.y - centerY, newPosition.x - centerX);
-        let angleDiff = isClockwise ? startAngle - endAngle : endAngle - startAngle;
+        let angleDiff = endAngle - startAngle;
 
-        angleDiff = angleDiff < 0 ? angleDiff + 2 * Math.PI : angleDiff;
-        angleDiff = isClockwise && angleDiff > 0 ? angleDiff - 2 * Math.PI : angleDiff;
+        if (isClockwise) {
+            if (angleDiff > 0) {
+                angleDiff -= 2 * Math.PI;
+            }
+        } else {
+            if (angleDiff < 0) {
+                angleDiff += 2 * Math.PI;
+            }
+        }
 
-        const segmentLength = 1;
-        const circumference = Math.abs(angleDiff) * radius;
-        const numSegments = Math.max(Math.ceil(circumference / segmentLength), 1);
+        const segmentLength = radius * Math.abs(angleDiff) / Math.ceil(radius * Math.abs(angleDiff) / 10); // Aim for about 10 segments per arc as a default
+        const numSegments = Math.max(Math.ceil(radius * Math.abs(angleDiff) / segmentLength), 1);
 
         for (let i = 1; i <= numSegments; i++) {
             const fraction = i / numSegments;
-            const angle = startAngle + angleDiff * fraction;
+            const angle = startAngle + fraction * angleDiff;
             const x = centerX + radius * Math.cos(angle);
             const y = centerY + radius * Math.sin(angle);
 

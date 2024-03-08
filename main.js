@@ -52,10 +52,12 @@ controls.update();
 
 let extrusionLineSegments, travelLineSegments;
 const purgeSphereMeshes = [];
-
+let layers = [];
 // Function to visualize layers using Three.js
 // After parsing the G-code and visualizing the initial layer
-function visualizeLayers(layers) {
+function visualizeLayers(l) {
+    layers = l;
+
     // Set the slider's maximum to the number of layers
     const layerSlider = document.getElementById('layerSlider');
     layerSlider.max = layers.length - 1;
@@ -68,48 +70,50 @@ function visualizeLayers(layers) {
     layerSlider.oninput = function () {
         updateLayerVisualization(this.value);
     };
+}
 
+function updateLayerVisualization(selectedLayerIndex) {
+    // Remove existing line segments and purge spheres from the scene
+    if (extrusionLineSegments) scene.remove(extrusionLineSegments);
+    if (travelLineSegments) scene.remove(travelLineSegments);
+    purgeSphereMeshes.forEach(mesh => scene.remove(mesh));
+    purgeSphereMeshes.length = 0;
 
-    function updateLayerVisualization(selectedLayerIndex) {
-        // Remove existing line segments and purge spheres from the scene
-        if (extrusionLineSegments) scene.remove(extrusionLineSegments);
-        if (travelLineSegments) scene.remove(travelLineSegments);
-        purgeSphereMeshes.forEach(mesh => scene.remove(mesh));
-        purgeSphereMeshes.length = 0;
+    // Create materials for the lines: one for extrusion (green) and one for travel (blue)
+    const extrusionMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+    const travelMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff });
 
-        // Create materials for the lines: one for extrusion (green) and one for travel (blue)
-        const extrusionMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-        const travelMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff });
+    // Create geometries to hold all line segments
+    const extrusionGeometry = new THREE.BufferGeometry();
+    const travelGeometry = new THREE.BufferGeometry();
+    const extrusionPositions = [];
+    const travelPositions = [];
 
-        // Create geometries to hold all line segments
-        const extrusionGeometry = new THREE.BufferGeometry();
-        const travelGeometry = new THREE.BufferGeometry();
-        const extrusionPositions = [];
-        const travelPositions = [];
-
-        // Collect line segment positions for all layers up to the selected index
-        for (let i = 0; i <= selectedLayerIndex; i++) {
-            const layer = layers[i];
-            layer.movements.forEach(movement => {
-                const positionsArray = movement.isExtruding ? extrusionPositions : travelPositions;
-                positionsArray.push(movement.from.x, movement.from.y, movement.from.z);
-                positionsArray.push(movement.to.x, movement.to.y, movement.to.z);
-            });
-        }
-
-        // Set the positions attribute of the geometries
-        extrusionGeometry.setAttribute('position', new THREE.Float32BufferAttribute(extrusionPositions, 3));
-        travelGeometry.setAttribute('position', new THREE.Float32BufferAttribute(travelPositions, 3));
-
-        // Create line segment objects and add them to the scene
-        extrusionLineSegments = new THREE.LineSegments(extrusionGeometry, extrusionMaterial);
-        travelLineSegments = new THREE.LineSegments(travelGeometry, travelMaterial);
-        scene.add(extrusionLineSegments);
-        scene.add(travelLineSegments);
-
-        // Render the scene
-        renderer.render(scene, camera);
+    // Collect line segment positions for all layers up to the selected index
+    for (let i = 0; i <= selectedLayerIndex; i++) {
+        const layer = layers[i];
+        layer.movements.forEach(movement => {
+            const positionsArray = movement.isExtruding ? extrusionPositions : travelPositions;
+            positionsArray.push(movement.from.x, movement.from.y, movement.from.z);
+            positionsArray.push(movement.to.x, movement.to.y, movement.to.z);
+        });
     }
+    // Check and set positions for extrusion movements
+    if (extrusionPositions.length > 0) {
+        extrusionGeometry.setAttribute('position', new THREE.Float32BufferAttribute(extrusionPositions, 3));
+        extrusionLineSegments = new THREE.LineSegments(extrusionGeometry, extrusionMaterial);
+        scene.add(extrusionLineSegments);
+    }
+
+    // Check and set positions for travel movements only if the checkbox is checked and there are travel movements
+    if (document.getElementById('toggleTravelLines').checked && travelPositions.length > 0) {
+        travelGeometry.setAttribute('position', new THREE.Float32BufferAttribute(travelPositions, 3));
+        travelLineSegments = new THREE.LineSegments(travelGeometry, travelMaterial);
+        scene.add(travelLineSegments);
+    }
+
+    // Render the scene
+    renderer.render(scene, camera);
 }
 
 // Function to handle G-code file upload
@@ -133,6 +137,12 @@ fileInput.type = 'file';
 fileInput.accept = '.gcode';
 fileInput.addEventListener('change', handleFileUpload);
 document.getElementById("fileInputContainer").appendChild(fileInput);
+
+document.getElementById('toggleTravelLines').addEventListener('change', () => {
+    const selectedLayerIndex = document.getElementById('layerSlider').value;
+    updateLayerVisualization(selectedLayerIndex);
+});
+
 
 // Animation loop
 function animate() {
