@@ -1,18 +1,54 @@
 // main.js
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GCodeParser } from './GCodeParser.js'; // Adjust the path as necessary
 
 // Set up Three.js scene, camera, and renderer
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const aspectRatio = window.innerWidth / window.innerHeight;
+
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.getElementById('canvasContainer').appendChild(renderer.domElement);
 
+const frustumSize = 1000;
+const camera = new THREE.OrthographicCamera(
+    frustumSize * aspectRatio / -2,
+    frustumSize * aspectRatio / 2,
+    frustumSize / 2,
+    frustumSize / -2,
+    1,
+    2000
+);
+
+// Adjust camera position to look at the scene from a diagonal angle
+camera.position.set(500, 500, 500);
+camera.lookAt(0, 0, 0);
+
+// Adjust the camera's up vector to be aligned with the Z-axis
+camera.up.set(0, 0, 1);
+
 // Set up controls for the camera
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableRotate = true;
+controls.enablePan = true;
+controls.enableZoom = true;
+controls.minDistance = 100;
+controls.maxDistance = 2000;
+controls.screenSpacePanning = true; // Change to false for more natural "turntable" panning
+controls.rotateSpeed = 1.0;
+controls.panSpeed = 1.0;
+controls.zoomSpeed = 1.0;
+
+// Update target to the center of the build plate
+controls.target.set(0, 0, 0);
+
+// These restrictions can be adjusted or removed if you want more freedom in camera movement
+controls.maxPolarAngle = Math.PI; // Prevent the camera from going below the build plate
+
+// Update the camera and controls
+camera.updateProjectionMatrix();
+controls.update();
 
 // Function to visualize layers using Three.js
 // After parsing the G-code and visualizing the initial layer
@@ -31,35 +67,42 @@ function visualizeLayers(layers) {
 
     function updateLayerVisualization(selectedLayerIndex) {
         // Clear existing scene
-        while (scene.children.length > 0) {
-            scene.remove(scene.children[0]);
-        }
+        scene.clear();
 
-        // Create a material for the lines
-        const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        // Create materials for the lines: one for extrusion (green) and one for travel (blue)
+        const extrusionMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        const travelMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff });
 
-        // Visualize all layers up to the selected index
+        // Create geometries to hold all line segments
+        const extrusionGeometry = new THREE.BufferGeometry();
+        const travelGeometry = new THREE.BufferGeometry();
+        const extrusionPositions = [];
+        const travelPositions = [];
+
+        // Collect line segment positions for all layers up to the selected index
         for (let i = 0; i <= selectedLayerIndex; i++) {
             const layer = layers[i];
             layer.movements.forEach(movement => {
-                const geometry = new THREE.BufferGeometry().setFromPoints([
-                    new THREE.Vector3(movement.from.x, movement.from.y, movement.from.z),
-                    new THREE.Vector3(movement.to.x, movement.to.y, movement.to.z)
-                ]);
-                const line = new THREE.Line(geometry, material);
-                scene.add(line);
+                const positionsArray = movement.isExtruding ? extrusionPositions : travelPositions;
+                positionsArray.push(movement.from.x, movement.from.y, movement.from.z);
+                positionsArray.push(movement.to.x, movement.to.y, movement.to.z);
             });
         }
 
+        // Set the positions attribute of the geometries
+        extrusionGeometry.setAttribute('position', new THREE.Float32BufferAttribute(extrusionPositions, 3));
+        travelGeometry.setAttribute('position', new THREE.Float32BufferAttribute(travelPositions, 3));
+
+        // Create line segment objects and add them to the scene
+        const extrusionLineSegments = new THREE.LineSegments(extrusionGeometry, extrusionMaterial);
+        const travelLineSegments = new THREE.LineSegments(travelGeometry, travelMaterial);
+        scene.add(extrusionLineSegments);
+        scene.add(travelLineSegments);
+
         // Update the camera position and render the scene
-        controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, Math.max(500, 2 * layers.length));
-        camera.lookAt(controls.target);
-        controls.update();
         renderer.render(scene, camera);
     }
 }
-
 
 // Function to handle G-code file upload
 function handleFileUpload(event) {

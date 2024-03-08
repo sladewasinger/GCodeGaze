@@ -8,9 +8,7 @@ class GCodeParser {
 
     parse(gcode) {
         const lines = gcode.split('\n');
-        for (let line of lines) {
-            this.processLine(line);
-        }
+        lines.forEach(line => this.processLine(line));
         return this.layers;
     }
 
@@ -20,69 +18,74 @@ class GCodeParser {
         const type = this.classifyLine(line);
         const newPosition = { ...this.currentPosition };
 
-        if (type === 'movement') {
-            this.processMovement(line, newPosition);
-        } else if (type === 'arc') {
-            this.processArcMovement(line, newPosition);
-        } else {
-            this.handleNonMovement(line, type);
+        switch (type) {
+            case 'movement':
+                this.processMovement(line, newPosition);
+                break;
+            case 'arc':
+                this.processArcMovement(line, newPosition);
+                break;
+            default:
+                this.handleNonMovement(line, type);
         }
 
         this.currentPosition = { ...newPosition };
     }
 
     classifyLine(line) {
-        const commandMap = {
-            'G0': 'movement', 'G1': 'movement',
-            'G2': 'arc', 'G3': 'arc',
-            'G92': 'reset', 'M600': 'pause', 'M601': 'pause',
-            'M83': 'extrusion', 'M84': 'extrusion',
-            'G90': 'coordinate_mode', 'G91': 'coordinate_mode',
-            'G10': 'retraction', 'G11': 'retraction',
-            'G1 Z': 'wipe', 'G1 X': 'outerwall', 'G1 Y': 'outerwall',
-        };
-
         const commandCode = line.split(' ')[0];
-        return commandMap[commandCode] || 'unknown';
+        return GCodeParser.commandMap[commandCode] || 'unknown';
     }
 
     processMovement(line, newPosition) {
-        let parts = line.split(' ');
+        const parts = line.split(' ');
 
+        let isExtruding = false;
         parts.forEach(part => {
-            let code = part.charAt(0);
-            let value = parseFloat(part.substring(1));
-            if (code === 'X' || code === 'Y' || code === 'Z') {
+            const code = part.charAt(0);
+            const value = parseFloat(part.substring(1));
+            if (['X', 'Y', 'Z'].includes(code)) {
                 newPosition[code.toLowerCase()] = value;
+            }
+            if (code === 'E' && value > 0) {
+                isExtruding = true;
             }
         });
 
-        this.updateLayer(newPosition);
+        this.updateLayer(newPosition, isExtruding);
     }
 
-    processArcMovement(line, newPosition) {
-        let parts = line.split(' ');
-        let centerX, centerY, isClockwise;
-        isClockwise = line.startsWith('G2');
 
-        for (let part of parts) {
-            if (part.startsWith('X')) {
-                newPosition.x = parseFloat(part.substring(1));
-            } else if (part.startsWith('Y')) {
-                newPosition.y = parseFloat(part.substring(1));
-            } else if (part.startsWith('I')) {
-                centerX = this.currentPosition.x + parseFloat(part.substring(1));
-            } else if (part.startsWith('J')) {
-                centerY = this.currentPosition.y + parseFloat(part.substring(1));
+    processArcMovement(line, newPosition) {
+        const parts = line.split(' ');
+        const isClockwise = line.startsWith('G2');
+        let centerX, centerY;
+
+        parts.forEach(part => {
+            const code = part.charAt(0);
+            const value = parseFloat(part.substring(1));
+            switch (code) {
+                case 'X':
+                    newPosition.x = value;
+                    break;
+                case 'Y':
+                    newPosition.y = value;
+                    break;
+                case 'I':
+                    centerX = this.currentPosition.x + value;
+                    break;
+                case 'J':
+                    centerY = this.currentPosition.y + value;
+                    break;
             }
-        }
+        });
 
         if (isNaN(centerX) || isNaN(centerY)) {
             console.error('Invalid center for arc movement:', line);
             return;
         }
 
-        const radius = Math.sqrt(Math.pow(centerX - this.currentPosition.x, 2) + Math.pow(centerY - this.currentPosition.y, 2));
+        const radius = Math.hypot(centerX - this.currentPosition.x, centerY - this.currentPosition.y);
         if (isNaN(radius) || radius <= 0) {
             console.error('Invalid radius for arc movement:', line);
             return;
@@ -92,22 +95,18 @@ class GCodeParser {
         const endAngle = Math.atan2(newPosition.y - centerY, newPosition.x - centerX);
         let angleDiff = isClockwise ? startAngle - endAngle : endAngle - startAngle;
 
-        if (angleDiff < 0) {
-            angleDiff += 2 * Math.PI;
-        }
-        if (isClockwise && angleDiff > 0) {
-            angleDiff -= 2 * Math.PI;
-        }
+        angleDiff = angleDiff < 0 ? angleDiff + 2 * Math.PI : angleDiff;
+        angleDiff = isClockwise && angleDiff > 0 ? angleDiff - 2 * Math.PI : angleDiff;
 
         const segmentLength = 1;
         const circumference = Math.abs(angleDiff) * radius;
         const numSegments = Math.max(Math.ceil(circumference / segmentLength), 1);
 
         for (let i = 1; i <= numSegments; i++) {
-            let fraction = i / numSegments;
-            let angle = startAngle + angleDiff * fraction;
-            let x = centerX + radius * Math.cos(angle);
-            let y = centerY + radius * Math.sin(angle);
+            const fraction = i / numSegments;
+            const angle = startAngle + angleDiff * fraction;
+            const x = centerX + radius * Math.cos(angle);
+            const y = centerY + radius * Math.sin(angle);
 
             if (!isNaN(x) && !isNaN(y)) {
                 if (this.currentLayer) {
@@ -127,7 +126,7 @@ class GCodeParser {
         }
     }
 
-    updateLayer(newPosition) {
+    updateLayer(newPosition, isExtruding) {
         if (!this.currentLayer || newPosition.z !== this.currentLayer.z) {
             this.currentLayer = this.getOrCreateLayer(newPosition.z);
         }
@@ -135,7 +134,8 @@ class GCodeParser {
         if (this.currentLayer) {
             this.currentLayer.movements.push({
                 from: { ...this.currentPosition },
-                to: { ...newPosition }
+                to: { ...newPosition },
+                isExtruding: isExtruding // Include the extrusion flag in the movement
             });
         }
     }
@@ -143,12 +143,16 @@ class GCodeParser {
     handleNonMovement(line, type) {
         const newPosition = { ...this.currentPosition };
 
-        // Handling for different non-movement commands can be expanded here
-        if (type === 'retraction') {
-            this.retractionZ = newPosition.z;
-        } else if (type === 'wipe' && this.retractionZ !== null) {
-            this.currentLayer = this.getOrCreateLayer(this.retractionZ);
-            this.retractionZ = null;
+        switch (type) {
+            case 'retraction':
+                this.retractionZ = newPosition.z;
+                break;
+            case 'wipe':
+                if (this.retractionZ !== null) {
+                    this.currentLayer = this.getOrCreateLayer(this.retractionZ);
+                    this.retractionZ = null;
+                }
+                break;
         }
     }
 
@@ -160,6 +164,15 @@ class GCodeParser {
         }
         return layer;
     }
-}
 
+    static commandMap = {
+        'G0': 'movement', 'G1': 'movement',
+        'G2': 'arc', 'G3': 'arc',
+        'G92': 'reset', 'M600': 'pause', 'M601': 'pause',
+        'M83': 'extrusion', 'M84': 'extrusion',
+        'G90': 'coordinate_mode', 'G91': 'coordinate_mode',
+        'G10': 'retraction', 'G11': 'retraction',
+        'G1 Z': 'wipe', 'G1 X': 'outerwall', 'G1 Y': 'outerwall',
+    };
+}
 export { GCodeParser };
