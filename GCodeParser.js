@@ -58,12 +58,11 @@ class GCodeParser {
         });
 
         if (isExtruding && isPurge) {
-            this.currentLayer.purge = { ...this.currentPosition };
+            this.currentLayer.purges.push({ position: this.currentPosition });
         }
 
         this.updateLayer(newPosition, isExtruding);
     }
-
 
     processArcMovement(line, newPosition) {
         const parts = line.split(' ');
@@ -154,10 +153,11 @@ class GCodeParser {
         }
     }
 
-    createNewLayer() {
+    createNewLayer(z) {
         const layer = {
+            z: z,
             movements: [],
-            purges: [] // Add purges array to each layer
+            purges: []
         };
         this.layers.push(layer);
         return layer;
