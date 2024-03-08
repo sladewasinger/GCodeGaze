@@ -50,6 +50,9 @@ controls.maxPolarAngle = Math.PI; // Prevent the camera from going below the bui
 camera.updateProjectionMatrix();
 controls.update();
 
+let extrusionLineSegments, travelLineSegments;
+const purgeSphereMeshes = [];
+
 // Function to visualize layers using Three.js
 // After parsing the G-code and visualizing the initial layer
 function visualizeLayers(layers) {
@@ -65,9 +68,13 @@ function visualizeLayers(layers) {
         updateLayerVisualization(this.value);
     };
 
+
     function updateLayerVisualization(selectedLayerIndex) {
-        // Clear existing scene
-        scene.clear();
+        // Remove existing line segments and purge spheres from the scene
+        if (extrusionLineSegments) scene.remove(extrusionLineSegments);
+        if (travelLineSegments) scene.remove(travelLineSegments);
+        purgeSphereMeshes.forEach(mesh => scene.remove(mesh));
+        purgeSphereMeshes.length = 0;
 
         // Create materials for the lines: one for extrusion (green) and one for travel (blue)
         const extrusionMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00 });
@@ -89,17 +96,33 @@ function visualizeLayers(layers) {
             });
         }
 
+        // Create geometry and material for purge spheres
+        const sphereGeometry = new THREE.SphereGeometry(2, 16, 16);
+        const purgeMaterial = new THREE.MeshBasicMaterial({ color: 0xff8000 });
+
+        // Render purge spheres for each layer up to the selected index
+        for (let i = 0; i <= selectedLayerIndex; i++) {
+            const layer = layers[i];
+            layer.purges.forEach(purge => {
+                const purgePosition = purge.position;
+                const purgeSphere = new THREE.Mesh(sphereGeometry, purgeMaterial);
+                purgeSphere.position.set(purgePosition.x, purgePosition.y, purgePosition.z);
+                scene.add(purgeSphere);
+                purgeSphereMeshes.push(purgeSphere);
+            });
+        }
+
         // Set the positions attribute of the geometries
         extrusionGeometry.setAttribute('position', new THREE.Float32BufferAttribute(extrusionPositions, 3));
         travelGeometry.setAttribute('position', new THREE.Float32BufferAttribute(travelPositions, 3));
 
         // Create line segment objects and add them to the scene
-        const extrusionLineSegments = new THREE.LineSegments(extrusionGeometry, extrusionMaterial);
-        const travelLineSegments = new THREE.LineSegments(travelGeometry, travelMaterial);
+        extrusionLineSegments = new THREE.LineSegments(extrusionGeometry, extrusionMaterial);
+        travelLineSegments = new THREE.LineSegments(travelGeometry, travelMaterial);
         scene.add(extrusionLineSegments);
         scene.add(travelLineSegments);
 
-        // Update the camera position and render the scene
+        // Render the scene
         renderer.render(scene, camera);
     }
 }

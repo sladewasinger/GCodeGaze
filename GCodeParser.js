@@ -3,7 +3,7 @@ class GCodeParser {
         this.currentPosition = { x: 0, y: 0, z: 0 };
         this.layers = [];
         this.currentLayer = null;
-        this.retractionZ = null;
+        this.firstExtrusionOccurred = false;
     }
 
     parse(gcode) {
@@ -41,16 +41,25 @@ class GCodeParser {
         const parts = line.split(' ');
 
         let isExtruding = false;
+        let isPurge = true;
         parts.forEach(part => {
             const code = part.charAt(0);
             const value = parseFloat(part.substring(1));
             if (['X', 'Y', 'Z'].includes(code)) {
+                if (newPosition[code.toLowerCase()] !== this.currentPosition[code.toLowerCase()]) {
+                    isPurge = false;
+                }
                 newPosition[code.toLowerCase()] = value;
             }
             if (code === 'E' && value > 0) {
                 isExtruding = true;
+                this.firstExtrusionOccurred = true;
             }
         });
+
+        if (isExtruding && isPurge) {
+            this.currentLayer.purge = { ...this.currentPosition };
+        }
 
         this.updateLayer(newPosition, isExtruding);
     }
@@ -126,43 +135,42 @@ class GCodeParser {
         }
     }
 
-    updateLayer(newPosition, isExtruding) {
-        if (!this.currentLayer || newPosition.z !== this.currentLayer.z) {
-            this.currentLayer = this.getOrCreateLayer(newPosition.z);
+    updateLayer(newPosition, isExtruding, isPurge = false) {
+        if (!this.currentLayer) {
+            this.currentLayer = this.createNewLayer();
+        }
+
+        if (this.firstExtrusionOccurred && newPosition.z !== this.currentLayer.z) {
+            this.currentLayer = this.createNewLayer(newPosition.z);
         }
 
         if (this.currentLayer) {
             this.currentLayer.movements.push({
                 from: { ...this.currentPosition },
                 to: { ...newPosition },
-                isExtruding: isExtruding // Include the extrusion flag in the movement
+                isExtruding: isExtruding,
+                isPurge: isPurge
             });
         }
     }
 
-    handleNonMovement(line, type) {
-        const newPosition = { ...this.currentPosition };
-
-        switch (type) {
-            case 'retraction':
-                this.retractionZ = newPosition.z;
-                break;
-            case 'wipe':
-                if (this.retractionZ !== null) {
-                    this.currentLayer = this.getOrCreateLayer(this.retractionZ);
-                    this.retractionZ = null;
-                }
-                break;
-        }
+    createNewLayer() {
+        const layer = {
+            movements: [],
+            purges: [] // Add purges array to each layer
+        };
+        this.layers.push(layer);
+        return layer;
     }
 
-    getOrCreateLayer(z) {
-        let layer = this.layers.find(layer => layer.z === z);
-        if (!layer) {
-            layer = { z, movements: [] };
-            this.layers.push(layer);
+    handleNonMovement(line, type) {
+        switch (type) {
+            case 'retraction':
+            case 'wipe':
+                // Ignore retraction and wipe commands
+                break;
+            // Handle other non-movement commands if needed
         }
-        return layer;
     }
 
     static commandMap = {
